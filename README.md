@@ -14,6 +14,13 @@ Multi-object tracking (MOT) system developed for the MOT16 benchmark. Starting f
 | **Baseline** | 26.1% | 0.111 | 47.2% | 66.9% | 52.4% | 29,113 | 53,405 |
 | **Ours** | **68.8%** | **0.109** | **67.1%** | **94.6%** | **73.9%** | **4,707** | **29,275** |
 
+## Demo Videos (MOT16-09)
+
+| Version | Video |
+|---------|-------|
+| Best approach | https://youtu.be/4KkDkTVgfUA |
+| Finetuned model | https://youtu.be/i-wtiM7GUUw |
+
 ## Dataset — MOT16
 
 - 14 videos (7 train / 7 test), 11,235 images total
