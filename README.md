@@ -1,73 +1,213 @@
-# Video Challenge: Multi-Object Tracking on MOT16
+# MOT16 Multi-Object Tracking Pipeline
 
-Master's course project — Deep Learning for Video Processing (UAM)  
-Authors: Eric Ayestaran Guillorme · Marcel Hofmann · Unax Murua Urizarbarrena
+**MOTA 26.1% → 68.8%** — ByteTrack · NSA Kalman · ResNet-18 Re-ID · FastAPI
 
-## Overview
+Master's project — Deep Learning for Video Processing (UAM)  
+Eric Ayestaran · Marcel Hofmann · Unax Murua
 
-Multi-object tracking (MOT) system developed for the MOT16 benchmark. Starting from a baseline tracker (ResNet50 + FPN), we designed and implemented a full tracking pipeline combining ByteTrack, NSA Kalman Filtering, Re-Identification, and linear interpolation post-processing — improving MOTA from **26.1% to 68.8%**.
+---
 
-## Results
+## Results on MOT16
 
 | | MOTA ↑ | MOTP ↑ | IDF1 ↑ | Precision ↑ | Recall ↑ | FP ↓ | FN ↓ |
-|--|--|--|--|--|--|--|--|
-| **Baseline** | 26.1% | 0.111 | 47.2% | 66.9% | 52.4% | 29,113 | 53,405 |
+|---|---|---|---|---|---|---|---|
+| Baseline (FRCNN only) | 26.1% | 0.111 | 47.2% | 66.9% | 52.4% | 29,113 | 53,405 |
 | **Ours** | **68.8%** | **0.109** | **67.1%** | **94.6%** | **73.9%** | **4,707** | **29,275** |
 
-## Demo Videos (MOT16-09)
+Demo — sequence MOT16-09: [best approach](https://youtu.be/4KkDkTVgfUA) · [finetuned model](https://youtu.be/i-wtiM7GUUw)
 
-| Version | Video |
-|---------|-------|
-| Best approach | https://youtu.be/4KkDkTVgfUA |
-| Finetuned model | https://youtu.be/i-wtiM7GUUw |
+---
+
+## System Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         Input Video / Frames                     │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+                    ┌───────────▼───────────┐
+                    │  Faster R-CNN + FPN   │  ResNet-50 backbone
+                    │  (person detection)   │  NMS thresh 0.5
+                    └───────────┬───────────┘
+                                │  boxes + scores
+              ┌─────────────────▼──────────────────┐
+              │          ByteTrack splitter         │
+              │   high conf ≥ 0.6 │ low 0.1–0.6    │
+              └──────┬──────────────────────┬───────┘
+                     │                      │
+        ┌────────────▼──────┐   ┌───────────▼───────────┐
+        │  NSA Kalman +     │   │   IoU-only association │
+        │  ResNet-18 Re-ID  │   │   (unmatched tracks)  │
+        │  cost = 0.4·IoU   │   └───────────────────────┘
+        │       + 0.6·App   │
+        └────────────┬──────┘
+                     │  matched / new tracks
+        ┌────────────▼──────────────────────┐
+        │  Linear interpolation (≤10 frames) │
+        └────────────┬──────────────────────┘
+                     │
+        ┌────────────▼──────────────────────┐
+        │  Tracking results  {id: {frame:   │
+        │  [x1,y1,x2,y2,score]}}            │
+        └───────────────────────────────────┘
+```
+
+### Key components
+
+| Component | Detail |
+|---|---|
+| **Detection** | Faster R-CNN, ResNet-50 + FPN backbone, pretrained on COCO |
+| **ByteTrack** | Two-stage association — retains low-confidence detections to survive occlusions |
+| **NSA Kalman** | Noise-scaled by detector confidence `R ∝ (1 − score)`: uncertain detections increase filter uncertainty |
+| **Re-ID** | ResNet-18 gallery embeddings (size 30); cosine distance weighted 60% vs IoU 40% |
+| **Interpolation** | Fills gaps ≤ 10 frames with linearly interpolated bounding boxes |
+
+---
+
+## Running with Docker
+
+### Build
+
+```bash
+docker build -t mot16-tracker .
+```
+
+### Run the API server
+
+```bash
+docker run --rm -p 8000:8000 mot16-tracker
+```
+
+GPU support (requires NVIDIA Container Toolkit):
+
+```bash
+docker run --rm --gpus all -p 8000:8000 mot16-tracker
+```
+
+### Check the service is up
+
+```bash
+curl http://localhost:8000/health
+# {"status":"ok","device":"cuda"}
+```
+
+Interactive API docs: http://localhost:8000/docs
+
+---
+
+## API Reference
+
+### `POST /track`
+
+Upload a video and receive per-frame tracking results.
+
+**Request** — `multipart/form-data`
+
+| Field | Type | Description |
+|---|---|---|
+| `file` | file | Video file (`.mp4`, `.avi`, `.mov`, `.mkv`) |
+
+**Response** — `application/json`
+
+```json
+{
+  "video_name": "clip.mp4",
+  "num_frames": 450,
+  "num_tracks": 12,
+  "processing_time_s": 38.2,
+  "detections": [
+    {
+      "track_id": 0,
+      "frame": 0,
+      "x1": 412.3,
+      "y1": 201.7,
+      "x2": 478.1,
+      "y2": 389.5,
+      "score": 0.94
+    }
+  ]
+}
+```
+
+**Example with curl**
+
+```bash
+curl -X POST http://localhost:8000/track \
+     -F "file=@your_video.mp4" | python -m json.tool
+```
+
+**Example with Python**
+
+```python
+import requests
+
+with open("your_video.mp4", "rb") as f:
+    response = requests.post(
+        "http://localhost:8000/track",
+        files={"file": ("video.mp4", f, "video/mp4")},
+    )
+
+data = response.json()
+print(f"Tracked {data['num_tracks']} objects across {data['num_frames']} frames")
+for det in data["detections"][:5]:
+    print(det)
+```
+
+---
+
+## Running Locally (without Docker)
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the API
+uvicorn api:app --reload --port 8000
+```
+
+---
+
+## Repository Structure
+
+```
+.
+├── api.py                  # FastAPI application
+├── Dockerfile              # Container definition
+├── requirements.txt        # Pinned dependencies
+├── best_model/
+│   ├── tracker.py          # ByteTrack + NSA Kalman + Re-ID implementation
+│   ├── object_detector.py  # Faster R-CNN wrapper
+│   ├── data_track.py       # MOT16 dataset loader
+│   └── utils.py            # Evaluation & visualisation helpers
+└── other_files/
+    ├── model_exec.ipynb    # Training / evaluation notebook
+    ├── finetuning_crowdhuman.ipynb
+    ├── mot_eval.py         # Standalone MOT metrics script
+    └── make_video.py       # Result visualisation
+```
+
+---
 
 ## Dataset — MOT16
 
-- 14 videos (7 train / 7 test), 11,235 images total
-- ~300,000 bounding boxes across ~1,300 pedestrian tracks
-- Street-level pedestrian sequences with occlusion and crowding
+| | Value |
+|---|---|
+| Sequences | 14 (7 train / 7 test) |
+| Total frames | 11,235 |
+| Bounding boxes | ~300,000 |
+| Pedestrian tracks | ~1,300 |
+| Challenge | Occlusion, crowding, varying density |
 
-## Architecture
-
-### Detection
-Baseline: Faster R-CNN with ResNet50 backbone and Feature Pyramid Network (FPN).
-
-Attempted detection improvements (discarded):
-- Fine-tuning on CrowdHuman dataset
-- Sliding window approach (too slow, negligible gain)
-- Hyperparameter tuning (confidence thresholds, proposal count)
-
-The main gains came from the **tracking pipeline**, not detection.
-
-### Tracking Pipeline
-
-**1. ByteTrack**  
-Instead of discarding low-confidence detections (< 0.6), ByteTrack retains detections with scores between 0.1 and 0.6 to maintain existing tracks during occlusion. This prevents trajectory fragmentation when people walk behind obstacles.
-
-**2. NSA Kalman Filter (Noise Scale Association)**  
-Extends the standard Kalman Filter by scaling uncertainty with detector confidence `(1.0 − score)`. When the detector is unsure, the system relies more on the object's predicted momentum from previous frames.
-
-**3. Re-Identification (ResNet-18)**  
-To maintain consistent IDs after occlusion, Re-ID embeddings from a ResNet-18 model are combined with spatial IoU in a weighted cost function:
-
-```
-cost = 0.4 × IoU + 0.6 × AppearanceDistance
-```
-
-Appearance distance (60% weight) is prioritized over spatial overlap as it is more reliable for identity matching.
-
-**4. Post-Processing: Linear Interpolation**  
-If a track ID disappears and reappears within 10 frames, missing bounding boxes are filled using linear interpolation of intermediate coordinates, recovering detections lost during brief occlusions.
+---
 
 ## Tech Stack
 
-- Python · PyTorch
-- Faster R-CNN + FPN (torchvision)
-- ByteTrack · Kalman Filter · ResNet-18 Re-ID
-- MOT16 benchmark · py-motmetrics
-- Google Colab
+Python · PyTorch · torchvision · FastAPI · OpenCV  
+Faster R-CNN · ByteTrack · Kalman Filter · ResNet-18 Re-ID · py-motmetrics
+
+---
 
 ## Authors
 
-Eric Ayestaran, Marcel Hofmann, Unax Murua  
-MSc Deep Learning in Audio, Video and Image Signal Processing, UAM
+Eric Ayestaran · Marcel Hofmann · Unax Murua  
+MSc Deep Learning in Audio, Video and Image Signal Processing — UAM

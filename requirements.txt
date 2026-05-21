@@ -1,0 +1,23 @@
+# Core ML / vision
+torch==2.2.2
+torchvision==0.17.2
+Pillow==10.4.0
+
+# Tracking & evaluation
+filterpy==1.4.5
+scipy==1.13.0
+motmetrics @ http://www-vpu.eps.uam.es/~jcs/teaching/DLVSP/py-motmetrics-fix_pandas_deprecating_warnings_python310.zip#sha256=96ac5f15d7cda8a166a529b6147a59d273f2ad839e236458672a40c1737f5c73
+
+# Video / image processing
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+
+# API
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+pydantic==2.7.1
+
+# Utilities
+tqdm==4.67.1
+matplotlib==3.9.0

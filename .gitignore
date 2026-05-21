@@ -1,0 +1,47 @@
+# macOS artifacts
+__MACOSX/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model weights
+*.pth
+*.pt
+*.ckpt
+*.weights
+*.bin
+
+# Data
+data/
+datasets/
+MOT16/
+
+# Results / outputs
+results/*.csv
+results/*.txt
+outputs/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log
+*.tmp
